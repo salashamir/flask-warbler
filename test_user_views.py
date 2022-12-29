@@ -175,6 +175,154 @@ class UserViewTestCase(TestCase):
     def test_user_new_like(self):
         """Test adding of a like"""
 
+        message = Message(id=372836, text="I'm hailing a taxi on the street", user_id=self.user1_id)
+        db.session.add(message)
+        db.session.commit()
+
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY] = self.testuser_id
+
+            res = client.post("/users/add_like/372836", follow_redirects=True)
+            self.assertEqual(res.status_code, 200)
+
+            likes = Likes.query.filter(Likes.message_id==372836).all()
+            self.assertEqual(len(likes), 1)
+            self.assertEqual(likes[0].user_id, self.testuser_id)
+
+    def test_user_remove_like(self):
+        """Test that like is removed from user likes"""
+
+        self.likes_setup()
+
+        message = Message.query.filter(Message.text=="CORE.").one()
+        self.assertIsNotNone(message)
+        self.assertNotEqual(message.user_id, self.testuser_id)
+        self.assertEqual(message.user_id, self.user1_id)
+
+        like = Likes.query.filter(Likes.user_id==self.testuser_id and Likes.message_id==message.id).one()
+
+        self.assertIsNotNone(like)
+
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY] = self.testuser_id
+
+            res = client.post(f"/users/add_like/{message.id}", follow_redirects=True)
+            self.assertEqual(res.status_code, 200)
+
+            likes = Likes.query.filter(Likes.message_id==message.id).all()
+
+            self.assertEqual(len(likes), 0)
+
+    def followers_setup(self):
+        """Setup follows for tests below pertaining to folloing and follower methods"""
+
+        follower_one = Follows(user_being_followed_id=self.user1.id, user_following_id=self.testuser_id)
+        follower_two = Follows(user_being_followed_id=self.user2.id, user_following_id=self.testuser_id)
+        follower_three = Follows(user_being_followed_id=self.testuser_id, user_following_id=self.user2_id)
+
+        db.session.add(follower_one)
+        db.session.add(follower_two)
+        db.session.add(follower_three)
+
+        db.session.commit()
+
+    def test_user_show_follows(self):
+        """Test that following users appear as stat on details page"""
+
+        self.followers_setup()
+
+        with self.client as client:
+            res = client.get(f"/users/{self.testuser_id}")
+            self.assertEqual(res.status_code, 200)
+
+            self.assertIn("@testuser", str(res.data))
+            bs = BeautifulSoup(str(res.data), 'html.parser')
+
+            messages_li = bs.find(id="messages-stat")
+            following_li = bs.find(id="following-stat")
+            followers_li = bs.find(id="followers-stat")
+            likes_li = bs.find(id="likes-stat")
+
+            self.assertIsNotNone(messages_li)
+            self.assertIsNotNone(following_li)
+            self.assertIsNotNone(followers_li)
+            self.assertIsNotNone(likes_li)
+
+            self.assertIn("0", messages_li.text)
+            self.assertIn("2", following_li.text)
+            self.assertIn("1", followers_li.text)
+            self.assertIn("0", likes_li.text)
+
+    def test_user_following(self):
+        """Test that following users show up on following page"""
+
+        self.followers_setup()
+
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY] = self.testuser_id
+
+            res = client.get(f"/users/{self.testuser_id}/following")
+
+            self.assertEqual(res.status_code, 200)
+            self.assertIn("@carl", str(res.data))
+            self.assertIn("@owen", str(res.data))
+            self.assertNotIn("@emily", str(res.data))
+            self.assertNotIn("@patricia", str(res.data))
+
+    def test_user_followers(self):
+        """Test that followers page shows users who follow testuser"""
+
+        self.followers_setup()
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY] = self.testuser_id
+
+            res = client.get(f"/users/{self.testuser_id}/followers")
+            self.assertEqual(res.status_code,200)
+            self.assertIn("@owen", str(res.data))
+            self.assertNotIn("@carl", str(res.data))
+            self.assertNotIn("@emily", str(res.data))
+            self.assertNotIn("@patricia", str(res.data))
+
+    def test_user_unathorized_follows(self):
+        """Test that an unauthorized person gets unauthorized message response"""
+
+        self.followers_setup()
+        with self.client as client:
+            res = client.get(f"/users/{self.testuser_id}/following", follow_redirects=True)
+            self.assertEqual(res.status_code, 200)
+            self.assertNotIn("@carl", str(res.data))
+            self.assertNotIn("@owen", str(res.data))
+            self.assertNotIn("@emily", str(res.data))
+            self.assertNotIn("@patricia", str(res.data))
+            self.assertIn("Access unauthorized", str(res.data))
+
+    def test_user_unathorized_followers(self):
+        """Test that an unauthorized person gets unauthorized message response"""
+
+        self.followers_setup()
+        with self.client as client:
+            res = client.get(f"/users/{self.testuser_id}/followers", follow_redirects=True)
+            self.assertEqual(res.status_code, 200)
+            self.assertNotIn("@carl", str(res.data))
+            self.assertNotIn("@owen", str(res.data))
+            self.assertNotIn("@emily", str(res.data))
+            self.assertNotIn("@patricia", str(res.data))
+            self.assertIn("Access unauthorized", str(res.data))
+
+
+
+
+
+
+
+
+
+
+
 
 
 

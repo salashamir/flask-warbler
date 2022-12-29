@@ -119,8 +119,6 @@ def logout():
     return redirect("/login")
 
 
-
-
 ##############################################################################
 # General user routes:
 
@@ -359,7 +357,7 @@ def messages_destroy(message_id):
     if msg.user_id != g.user.id:
         flash("Access unauthorized.", "danger")
         return redirect("/")
-        
+
     db.session.delete(msg)
     db.session.commit()
 
