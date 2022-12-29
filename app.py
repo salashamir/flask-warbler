@@ -342,7 +342,7 @@ def messages_add():
 def messages_show(message_id):
     """Show a message."""
 
-    msg = Message.query.get(message_id)
+    msg = Message.query.get_or_404(message_id)
     return render_template('messages/show.html', message=msg)
 
 
@@ -354,7 +354,12 @@ def messages_destroy(message_id):
         flash("Access unauthorized.", "danger")
         return redirect("/")
 
-    msg = Message.query.get(message_id)
+    msg = Message.query.get_or_404(message_id)
+    # check that user can actually delete the message, i.e. they amde it 
+    if msg.user_id != g.user.id:
+        flash("Access unauthorized.", "danger")
+        return redirect("/")
+        
     db.session.delete(msg)
     db.session.commit()
 
@@ -363,6 +368,11 @@ def messages_destroy(message_id):
 
 ##############################################################################
 # Homepage and error pages
+
+@app.errorhandler(404)
+def not_found(error):
+    """404 page"""
+    return render_template('404.html'), 404
 
 
 @app.route('/')

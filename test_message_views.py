@@ -39,6 +39,9 @@ class MessageViewTestCase(TestCase):
     def setUp(self):
         """Create test client, add sample data."""
 
+        db.drop_all()
+        db.create_all()
+
         User.query.delete()
         Message.query.delete()
 
@@ -48,8 +51,12 @@ class MessageViewTestCase(TestCase):
                                     email="test@test.com",
                                     password="testuser",
                                     image_url=None)
+        
+        self.testuser_id = 7111
+        self.testuser.id = self.testuser_id
 
         db.session.commit()
+
 
     def test_add_message(self):
         """Can use add a message?"""
@@ -71,3 +78,114 @@ class MessageViewTestCase(TestCase):
 
             msg = Message.query.one()
             self.assertEqual(msg.text, "Hello")
+
+
+    def test_add_without_user(self):
+        """Invalid response should be returned when user not logged in"""
+
+        with self.client as client:
+            res = client.post("/messages/new", data={"text":"warble one"}, follow_redirects=True)
+
+            self.assertEqual(res.status_code, 200)
+            self.assertIn("Access unauthorized", str(res.data))
+
+
+    def test_add_with_fake_user(self):
+        """Invalid user in session"""
+
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY] = 74623732
+
+            res = client.post("/messages/new", data={"text":"warbleeeeee"}, follow_redirects=True)
+            self.assertEqual(res.status_code, 200)
+            self.assertIn("Access unauthorized", str(res.data))
+
+
+    def test_show_message(self):
+        """Test message is shown for specific message route"""
+
+        message = Message(id=6534, text="test warble!", user_id=self.testuser_id)
+        db.session.add(message)
+        db.session.commit()
+
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY]= self.testuser.id
+
+            mssg = Message.query.get(6534)
+
+            res = client.get(f'/messages/{mssg.id}')
+
+            self.assertEqual(res.status_code,200)
+            self.assertIn(mssg.text, str(res.data))
+
+
+    def test_show_invalid_message(self):
+        """Test that 404 is returned for message that doesnt exist"""
+
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY]= self.testuser.id
+
+            res = client.get('/messages/473847363')
+
+            self.assertEqual(res.status_code, 404)
+
+
+    def test_message_delete(self):
+        """Test that user can delete their own message"""
+        message = Message(id=11111, text="message to be deleted", user_id=self.testuser_id)
+        db.session.add(message)
+        db.session.commit()
+
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY] = self.testuser.id
+
+            res = client.post("/messages/11111/delete", follow_redirects=True)
+            self.assertEqual(res.status_code,200)
+
+            message = Message.query.get(11111)
+
+            self.assertIsNone(message)
+
+
+    def test_message_delete_unauthorized(self):
+        """Test that deleting a message when the user isn't authorized returns unauthorized message"""
+
+        # create another user to delete a message from original user
+        user2 = User.signup(username="testUser2", email="testuser2@lynx.com", password="impossdtoUnhash7524!", image_url=None)
+        user2.id = 8552378
+
+        # orginal user creates messages
+        message = Message(id=432451, text="random warble!", user_id=self.testuser_id)
+        db.session.add_all([user2, message])
+        db.session.commit()
+
+        # simulate logging user in, 
+        with self.client as client:
+            with client.session_transaction() as session:
+                session[CURR_USER_KEY] = 8552378
+
+            res = client.post("/messages/432451/delete", follow_redirects=True)
+            self.assertEqual(res.status_code, 200)
+            self.assertIn("Access unauthorized", str(res.data))
+
+            # checl that message is still in db
+            message = Message.query.get(432451)
+            self.assertEqual(message.text, "random warble!")
+
+
+    def test_message_delete_unauthenticated(self):
+        """Test that unauthorized is also returned when no one logged in and message dleete is attempted"""
+
+        message = Message(id=7546342, text="test warble", user_id=self.testuser_id)
+        db.session.add(message)
+        db.session.commit()
+
+        # try without logging in 
+        with self.client as client:
+            res = client.post("/messages/7546342/delete", follow_redirects=True)
+            self.assertEqual(res.status_code, 200)
+            self.assertIn("Access unauthorized", str(res.data))
